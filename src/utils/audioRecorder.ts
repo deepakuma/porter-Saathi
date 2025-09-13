@@ -183,47 +183,47 @@ export class TranscriptionService {
     }
   }
 
-  async checkHealth(): Promise<boolean> {
-    try {
-      console.log('🔍 Checking Groq service health at:', `${this.baseUrl}/health`);
-      console.log('🌐 Making request from origin:', window.location.origin);
+  // async checkHealth(): Promise<boolean> {
+  //   try {
+  //     console.log('🔍 Checking Groq service health at:', `${this.baseUrl}/health`);
+  //     console.log('🌐 Making request from origin:', window.location.origin);
       
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+  //     const controller = new AbortController();
+  //     const timeoutId = setTimeout(() => controller.abort(), 5000);
       
-      const response = await fetch(`${this.baseUrl}/health`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        signal: controller.signal
-      });
+  //     const response = await fetch(`${this.baseUrl}/health`, {
+  //       method: 'GET',
+  //       headers: {
+  //         'Content-Type': 'application/json',
+  //       },
+  //       signal: controller.signal
+  //     });
       
-      clearTimeout(timeoutId);
+  //     clearTimeout(timeoutId);
       
-      console.log('📡 Health check response:', {
-        status: response.status,
-        ok: response.ok,
-        statusText: response.statusText,
-        headers: Object.fromEntries(response.headers.entries())
-      });
+  //     console.log('📡 Health check response:', {
+  //       status: response.status,
+  //       ok: response.ok,
+  //       statusText: response.statusText,
+  //       headers: Object.fromEntries(response.headers.entries())
+  //     });
       
-      if (response.ok) {
-        const data = await response.json();
-        console.log('✅ Health check data:', data);
-        console.log('🎯 Health check SUCCESS - returning true');
-        return true;
-      } else {
-        console.log('❌ Health check FAILED - response not ok');
-        return false;
-      }
-    } catch (error) {
-      console.error('❌ Health check EXCEPTION:', {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      });
-      return false;
-    }
-  }
+  //     if (response.ok) {
+  //       const data = await response.json();
+  //       console.log('✅ Health check data:', data);
+  //       console.log('🎯 Health check SUCCESS - returning true');
+  //       return true;
+  //     } else {
+  //       console.log('❌ Health check FAILED - response not ok');
+  //       return false;
+  //     }
+  //   } catch (error) {
+  //     console.error('❌ Health check EXCEPTION:', {
+  //       name: error.name,
+  //       message: error.message,
+  //       stack: error.stack
+  //     });
+  //     return false;
+  //   }
+  // }
 }

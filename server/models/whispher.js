@@ -4,10 +4,11 @@ import dotenv from "dotenv";
 
 dotenv.config();
 // Initialize Groq client
-
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+console.log("Groq API Key:", process.env.GROQ_API_KEY)
+// const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 async function whisperModel(file) {
+  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
   console.log("🔍 whisperModel called with file:", file);
   if (!file) {
     console.error("Error: No file path provided");
@@ -21,7 +22,10 @@ async function whisperModel(file) {
   }
   console.log("🔍 File exists, proceeding with Groq API call...");
   try {
+    console.log("file",file);
+    console.log("file",file.mimetype);
     console.log(`Processing audio file: ${file}`);
+
     const translation = await groq.audio.translations.create({
       file: fs.createReadStream(file),
       model: "whisper-large-v3",
@@ -42,7 +46,7 @@ async function whisperModel(file) {
 
 // Export the function for use in other modules
 export { whisperModel };
-
+//whisperModel();
 // Command line usage (only when run directly)
 if (import.meta.url === `file://${process.argv[1]}`) {
   const audioFilePath = process.argv[2];
