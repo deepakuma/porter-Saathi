@@ -9,8 +9,31 @@ import Groq from 'groq-sdk';
 // Load environment variables
 config();
 
-const app = express();
+const app = express()
 const port = process.env.PORT || 3001;
+
+
+const express = require('express');
+const { connectDB, createUserAndStats } = require('./db');
+
+require('dotenv').config();
+
+async function start() {
+  await connectDB();
+
+  // Optionally call createUserAndStats here or somewhere else
+  await createUserAndStats();
+
+  app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
+  });
+}
+
+start();
+
+
+
+
 
 // Initialize Groq client
 const groq = new Groq({ 
