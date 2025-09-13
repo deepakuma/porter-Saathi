@@ -38,6 +38,16 @@ export class AudioRecorder {
         return;
       }
 
+      if (this.mediaRecorder.state === 'inactive') {
+        reject(new Error('Recording is already stopped'));
+        return;
+      }
+
+      if (this.mediaRecorder.state === 'paused') {
+        reject(new Error('Recording is paused, cannot stop'));
+        return;
+      }
+
       this.mediaRecorder.onstop = () => {
         const audioBlob = new Blob(this.audioChunks, { 
           type: this.getSupportedMimeType() 
@@ -51,7 +61,12 @@ export class AudioRecorder {
         reject(new Error(`Recording error: ${event}`));
       };
 
-      this.mediaRecorder.stop();
+      try {
+        this.mediaRecorder.stop();
+      } catch (error) {
+        this.cleanup();
+        reject(new Error(`Failed to stop recording: ${error}`));
+      }
     });
   }
 
@@ -128,9 +143,9 @@ export class TranscriptionService {
           errorMessage = errorData.error || errorMessage;
           console.error('❌ Server error response:', errorData);
         } catch (parseError) {
-          const textError = await response.text();
-          console.error('❌ Non-JSON error response:', textError);
-          errorMessage = textError || errorMessage;
+          // Don't try to read response.text() after response.json() failed
+          console.error('❌ Failed to parse error response as JSON:', parseError);
+          errorMessage = `HTTP ${response.status} - ${response.statusText}`;
         }
         throw new Error(errorMessage);
       }
