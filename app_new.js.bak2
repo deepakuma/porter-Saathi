@@ -1,0 +1,107 @@
+// app.js
+require("dotenv").config();
+const express = require("express");
+const bodyParser = require("body-parser");
+const cors = require("cors");
+const fs = require('fs');
+const csv = require('csv-parser');
+const path = require('path');
+
+const app = express();
+
+// Middleware
+app.use(cors());
+app.use(bodyParser.json());
+
+// Global variable to store our data
+let deliveryData = [];
+
+// Load CSV data
+function loadDeliveryData() {
+  const results = [];
+  fs.createReadStream(path.join(__dirname, 'data', 'delivery_data.csv'))
+    .pipe(csv())
+    .on('data', (data) => {
+      // Convert string values to appropriate types
+      data.isActive = data.isActive === 'true';
+      data.rating = parseFloat(data.rating);
+      data.earnings = parseFloat(data.earnings);
+      data.deliveries = parseInt(data.deliveries);
+      data.hoursOnline = parseFloat(data.hoursOnline);
+      data.OrdersNotified = parseInt(data.OrdersNotified);
+      data.OrdersAccepted = parseInt(data.OrdersAccepted);
+      results.push(data);
+    })
+    .on('end', () => {
+      deliveryData = results;
+      console.log('✅ Delivery data loaded successfully');
+    });
+}
+
+// Load data when server starts
+loadDeliveryData();
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    name: 'Porter Saathi API',
+    version: '1.0.0',
+    endpoints: {
+      '/': 'API information',
+      '/health': 'System health check',
+      '/drivers': 'List all drivers',
+      '/drivers/:phone': 'Get driver by phone number',
+      '/stats': 'Get delivery statistics'
+    }
+  });
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    dataCount: deliveryData.length
+  });
+});
+
+// Get all drivers
+app.get('/drivers', (req, res) => {
+  res.json(deliveryData);
+});
+
+// Get driver by phone number
+app.get('/drivers/:phone', (req, res) => {
+  const driver = deliveryData.find(d => d.phoneNumber === req.params.phone);
+  if (driver) {
+    res.json(driver);
+  } else {
+    res.status(404).json({ error: 'Driver not found' });
+  }
+});
+
+// Get statistics
+app.get('/stats', (req, res) => {
+  const stats = {
+    totalDrivers: deliveryData.length,
+    activeDrivers: deliveryData.filter(d => d.isActive).length,
+    totalDeliveries: deliveryData.reduce((sum, d) => sum + d.deliveries, 0),
+    totalEarnings: deliveryData.reduce((sum, d) => sum + d.earnings, 0),
+    averageRating: deliveryData.reduce((sum, d) => sum + d.rating, 0) / deliveryData.length
+  };
+  res.json(stats);
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('❌ Error:', err.stack);
+  res.status(500).json({ 
+    error: 'Internal Server Error',
+    message: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
+});
+
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  console.log(`🚀 Porter Saathi started on http://localhost:${PORT}`);
+});

@@ -1,0 +1,11 @@
+phoneNumber,language,location,isActive,rating,createdAt,date,earnings,deliveries,hoursOnline,OrdersNotified,OrdersAccepted
++91-9876543210,Hindi,Delhi,true,4.8,2024-01-01,2024-03-15,450.75,8,6.5,12,8
++91-9876543211,English,Mumbai,true,4.5,2024-01-15,2024-03-15,380.50,6,5.0,10,6
++91-9876543212,Tamil,Chennai,true,4.9,2024-02-01,2024-03-15,520.25,9,7.0,15,9
++91-9876543213,Telugu,Hyderabad,false,4.2,2024-02-15,2024-03-15,0,0,0,0,0
++91-9876543214,Kannada,Bangalore,true,4.7,2024-03-01,2024-03-15,485.00,7,6.0,11,7
++91-9876543215,Malayalam,Kochi,true,4.6,2024-01-20,2024-03-15,420.75,8,5.5,13,8
++91-9876543216,Marathi,Pune,true,4.4,2024-02-10,2024-03-15,350.25,5,4.5,8,5
++91-9876543217,Bengali,Kolkata,true,4.3,2024-03-05,2024-03-15,390.50,6,5.0,9,6
++91-9876543218,Gujarati,Ahmedabad,true,4.8,2024-02-20,2024-03-15,480.25,8,6.5,14,8
++91-9876543219,Hindi,Lucknow,true,4.5,2024-01-10,2024-03-15,410.00,7,5.5,11,7
