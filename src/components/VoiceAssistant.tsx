@@ -54,6 +54,8 @@ export function VoiceAssistant({
   const synthRef = useRef(null as SpeechSynthesisUtterance | null);
   const audioRecorderRef = useRef(null as AudioRecorder | null);
   const transcriptionServiceRef = useRef(null as TranscriptionService | null);
+  const silenceTimerRef = useRef(null as NodeJS.Timeout | null);
+  const lastSpeechTimeRef = useRef(Date.now());
 
   useEffect(() => {
     console.log('🎤 VoiceAssistant: Initializing services...');
@@ -131,23 +133,50 @@ export function VoiceAssistant({
         }
       };
       
-      recognition.onresult = (event) => {
-        const last = event.results.length - 1;
-        const command = event.results[last][0].transcript.toLowerCase().trim();
-        const confidence = event.results[last][0].confidence;
+      recognition.onresult = async (event) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
         
-        console.log('🎯 Web Speech API result:', {
-          command,
-          confidence,
-          isFinal: event.results[last].isFinal
-        });
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
         
-        setLastCommand(command);
-        setConfidence(confidence);
+        // Update last speech time when we get any speech input
+        if (finalTranscript || interimTranscript) {
+          lastSpeechTimeRef.current = Date.now();
+          
+          // Clear existing silence timer
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+            silenceTimerRef.current = null;
+          }
+          
+          // Start new silence timer
+          silenceTimerRef.current = setTimeout(async () => {
+            console.log('🔇 5 seconds of silence detected - auto-stopping...');
+            await handleSilenceTimeout();
+          }, 5000);
+        }
         
-        if (event.results[last].isFinal && confidence > 0.7) {
-          console.log('✅ Processing command:', command);
-          processVoiceCommand(command);
+        if (finalTranscript) {
+          console.log('🎯 Web Speech API: Final result:', finalTranscript);
+          console.log('🔍 Current transcriptionMethod:', transcriptionMethod);
+          console.log('🔍 audioRecorderRef.current exists:', !!audioRecorderRef.current);
+          console.log('🔍 groqServiceAvailable:', groqServiceAvailable);
+          
+          setTranscriptionText(finalTranscript);
+          
+          // Don't process immediately - wait for silence timeout
+          console.log('⏳ Waiting for silence timeout to process with Whisper...');
+          
+        } else if (interimTranscript) {
+          console.log('⏳ Web Speech API: Interim result:', interimTranscript);
+          setTranscriptionText(interimTranscript);
         }
       };
       
@@ -385,40 +414,7 @@ export function VoiceAssistant({
     }
 
     if (isListening) {
-      console.log('🛑 Stopping listening...');
-      if (useGroqFallback && audioRecorderRef.current) {
-        try {
-          console.log('🎙️ Stopping Groq recording...');
-          setAudioRecordingStatus('Stopping recording...');
-          
-          // Check if recording is actually active before stopping
-          if (!audioRecorderRef.current.isRecording()) {
-            console.warn('⚠️ No active recording to stop');
-            setError('No active recording found. Please start recording first.');
-            setAudioRecordingStatus('');
-            setIsListening(false);
-            return;
-          }
-          
-          const audioBlob = await audioRecorderRef.current.stopRecording();
-          console.log('✅ Audio recorded, processing transcription...');
-          setAudioRecordingStatus('Audio recorded, sending to Whisper...');
-          await processGroqTranscription(audioBlob);
-        } catch (error) {
-          console.error('❌ Error stopping Groq recording:', error);
-          console.error('❌ Full error details:', {
-            message: error.message,
-            stack: error.stack,
-            name: error.name
-          });
-          setError(`Failed to process recording: ${error.message || 'Unknown error'}`);
-          setAudioRecordingStatus('');
-        }
-      } else if (recognitionRef.current) {
-        console.log('🛑 Stopping Web Speech recognition...');
-        recognitionRef.current.stop();
-      }
-      setIsListening(false);
+      await stopListening();
       return;
     }
 
@@ -434,12 +430,12 @@ export function VoiceAssistant({
 
     setError('');
 
-    // Prefer Groq if available, otherwise use Web Speech
-    if (useGroqFallback && groqServiceAvailable) {
-      console.log('🎙️ Starting Groq recording...');
-      await startGroqRecording();
+    // Use hybrid approach: Web Speech + Groq Whisper
+    if (groqServiceAvailable) {
+      console.log('🔄 Starting hybrid Web Speech + Groq Whisper...');
+      await startHybridRecording();
     } else if (recognitionRef.current) {
-      console.log('🎤 Starting Web Speech recognition...');
+      console.log('🎤 Fallback to Web Speech only...');
       await startWebSpeechRecognition();
     } else {
       console.log('❌ No transcription service available');
@@ -470,34 +466,121 @@ export function VoiceAssistant({
     }
   };
 
-  const startGroqRecording = async () => {
-    if (!audioRecorderRef.current) {
-      console.error('❌ AudioRecorder not initialized');
+  const handleSilenceTimeout = async () => {
+    console.log('🔇 Handling silence timeout - processing with Whisper...');
+    
+    // Clear silence timer
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    
+    // Stop listening and process with Groq Whisper
+    if (audioRecorderRef.current && transcriptionServiceRef.current) {
+      try {
+        const isGroqAvailable = await transcriptionServiceRef.current.checkHealth();
+        console.log('🔍 Groq availability for silence processing:', isGroqAvailable);
+        
+        if (isGroqAvailable) {
+          console.log('🔄 Processing silence-triggered Whisper transcription...');
+          setAudioRecordingStatus('Processing with Groq Whisper...');
+          
+          const audioBlob = await audioRecorderRef.current.stopRecording();
+          console.log('📁 Silence-triggered audio blob:', !!audioBlob, audioBlob?.size || 0, 'bytes');
+          
+          if (audioBlob) {
+            await processGroqTranscription(audioBlob);
+          } else {
+            console.log('❌ No audio blob from silence timeout');
+          }
+        } else {
+          console.log('❌ Groq not available during silence timeout');
+        }
+      } catch (error) {
+        console.error('❌ Error processing silence timeout:', error);
+      }
+    }
+    
+    // Stop Web Speech API
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+        console.log('✅ Web Speech API stopped after silence');
+      } catch (error) {
+        console.error('❌ Error stopping Web Speech API after silence:', error);
+      }
+    }
+    
+    setIsListening(false);
+  };
+
+  const stopListening = async () => {
+    console.log('🛑 Stopping voice recognition...');
+    setIsListening(false);
+    setError('');
+    
+    // Clear silence timer
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+        console.log('✅ Web Speech API stopped');
+      } catch (error) {
+        console.error('❌ Error stopping Web Speech API:', error);
+      }
+    }
+    
+    // In hybrid mode, audio recording is handled by Web Speech onresult
+    // For pure Groq mode, process the audio blob
+    if (audioRecorderRef.current && transcriptionMethod === 'groq') {
+      try {
+        const audioBlob = await audioRecorderRef.current.stopRecording();
+        if (audioBlob) {
+          console.log('🔄 Processing recorded audio with Groq...');
+          await processGroqTranscription(audioBlob);
+        }
+      } catch (error) {
+        console.error('❌ Error stopping audio recording:', error);
+      }
+    }
+    
+    setAudioRecordingStatus('');
+    setTranscriptionMethod('webspeech'); // Reset to default
+  };
+
+  const startHybridRecording = async () => {
+    if (!audioRecorderRef.current || !recognitionRef.current) {
+      console.error('❌ AudioRecorder or SpeechRecognition not initialized');
       return;
     }
     
     try {
-      console.log('🎙️ Starting Groq recording...');
-      setAudioRecordingStatus('Recording audio...');
+      console.log('🎙️ Starting hybrid Web Speech + Groq recording...');
+      setAudioRecordingStatus('Listening with Web Speech API...');
       setTranscriptionText('');
-      await audioRecorderRef.current.startRecording();
+      
+      // Start both Web Speech API and audio recording simultaneously
+      await Promise.all([
+        audioRecorderRef.current.startRecording(),
+        startWebSpeechRecognition()
+      ]);
+      
       setIsListening(true);
-      setTranscriptionMethod('groq');
-      console.log('✅ Groq recording started successfully');
+      setTranscriptionMethod('hybrid');
+      console.log('✅ Hybrid recording started successfully');
     } catch (error) {
-      console.error('❌ Failed to start Groq recording:', error);
-      setError('Failed to start recording for transcription');
+      console.error('❌ Failed to start hybrid recording:', error);
+      setError('Failed to start hybrid recording');
       setAudioRecordingStatus('');
     }
   };
 
   const processGroqTranscription = async (audioBlob: Blob) => {
-    if (!transcriptionServiceRef.current) {
-      console.error('❌ TranscriptionService not initialized');
-      return;
-    }
-    
-    console.log('🔄 Processing Groq transcription...', {
+    console.log('🔄 Processing Groq transcription directly...', {
       audioBlobSize: audioBlob.size,
       audioBlobType: audioBlob.type
     });
@@ -506,26 +589,34 @@ export function VoiceAssistant({
     setAudioRecordingStatus(`Processing audio (${(audioBlob.size / 1024).toFixed(1)}KB)...`);
     
     try {
-      const result = await transcriptionServiceRef.current.transcribe(audioBlob);
-      console.log('🎯 Groq transcription result:', result);
+      // Save audio blob to file and process with whisperModel directly
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'recording.mp3');
+      
+      const response = await fetch('http://localhost:3001/process-audio-direct', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      console.log('🎯 Direct Whisper result:', result);
       
       // Display the transcription text
       setTranscriptionText(result.text);
       setLastCommand(result.text.toLowerCase().trim());
       setConfidence(result.confidence);
       
-      // Show translation status if applicable
-      if (result.wasTranslated) {
-        setAudioRecordingStatus(`Translated from ${result.language} to English (${Math.round(result.confidence * 100)}% confidence)`);
-      } else {
-        setAudioRecordingStatus(`Transcription complete (${Math.round(result.confidence * 100)}% confidence)`);
-      }
+      setAudioRecordingStatus(`Transcription complete (${Math.round(result.confidence * 100)}% confidence)`);
       
       // Show transcription result to user
       speak(`I heard: ${result.text}`);
       
       if (result.confidence > 0.5) {
-        console.log('✅ Processing Groq command:', result.text);
+        console.log('✅ Processing Whisper command:', result.text);
         setTimeout(() => {
           processVoiceCommand(result.text.toLowerCase().trim());
         }, 2000); // Give user time to see the transcription
@@ -536,13 +627,7 @@ export function VoiceAssistant({
         }, 2000);
       }
     } catch (error) {
-      console.error('❌ Groq transcription error:', error);
-      console.error('❌ Full transcription error details:', {
-        message: error.message,
-        stack: error.stack,
-        name: error.name,
-        response: error.response?.data || 'No response data'
-      });
+      console.error('❌ Direct Whisper transcription error:', error);
       setAudioRecordingStatus('Transcription failed');
       
       // Try Web Speech as fallback if Groq fails

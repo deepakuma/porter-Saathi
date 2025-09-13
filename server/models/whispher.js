@@ -8,6 +8,7 @@ dotenv.config();
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 async function whisperModel(file) {
+  console.log("🔍 whisperModel called with file:", file);
   if (!file) {
     console.error("Error: No file path provided");
     console.log("Usage: node models/whispher.js <path-to-audio-file>");
@@ -18,7 +19,7 @@ async function whisperModel(file) {
     console.error(`Error: File not found: ${file}`);
     return;
   }
-
+  console.log("🔍 File exists, proceeding with Groq API call...");
   try {
     console.log(`Processing audio file: ${file}`);
     const translation = await groq.audio.translations.create({
@@ -33,18 +34,25 @@ async function whisperModel(file) {
     console.log("Translation result:", translation.text);
     return translation.text;
   } catch (err) {
-    console.error("Error:", err);
+    console.error("❌ Whisper API Error:", err);
+    console.error("❌ Full error details:", JSON.stringify(err, null, 2));
+    throw err; // Re-throw the error so it can be handled by the caller
   }
 }
 
-// Get file path from command line arguments
-const audioFilePath = process.argv[2];
+// Export the function for use in other modules
+export { whisperModel };
 
-if (audioFilePath) {
-  whisperModel(audioFilePath);
-} else {
-  console.log("Usage: node models/whispher.js <path-to-audio-file>");
-  console.log("Example: node models/whispher.js ../uploads/recording.wav");
+// Command line usage (only when run directly)
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const audioFilePath = process.argv[2];
+
+  if (audioFilePath) {
+    whisperModel(audioFilePath);
+  } else {
+    console.log("Usage: node models/whispher.js <path-to-audio-file>");
+    console.log("Example: node models/whispher.js ../uploads/recording.wav");
+  }
 }
 
 // Example usage:

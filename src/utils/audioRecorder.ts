@@ -84,16 +84,17 @@ export class AudioRecorder {
   }
 
   private getSupportedMimeType(): string {
-    const types = [
-      'audio/webm;codecs=opus',
+    // Try WebM first - it's most widely supported and works with Groq
+    const preferredTypes = [
       'audio/webm',
-      'audio/mp4',
-      'audio/ogg;codecs=opus',
+      'audio/webm;codecs=opus',
+      'audio/ogg',
       'audio/wav'
     ];
 
-    for (const type of types) {
+    for (const type of preferredTypes) {
       if (MediaRecorder.isTypeSupported(type)) {
+        console.log('🎵 Selected audio format:', type);
         return type;
       }
     }
@@ -125,8 +126,28 @@ export class TranscriptionService {
       type: audioBlob.type
     });
 
+    // Send original audio format without conversion
+    let processedBlob = audioBlob;
+    let filename = 'recording.webm';
+    
+    if (audioBlob.type.includes('webm')) {
+      filename = 'recording.webm';
+    } else if (audioBlob.type.includes('ogg')) {
+      filename = 'recording.ogg';
+    } else if (audioBlob.type.includes('wav')) {
+      filename = 'recording.wav';
+    }
+    
+    console.log('📤 Using original audio format:', {
+      size: processedBlob.size,
+      type: processedBlob.type,
+      filename: filename
+    });
+    
+
     const formData = new FormData();
-    formData.append('audio', audioBlob, 'recording.webm');
+    console.log('📤 Sending audio file:', filename, 'with type:', processedBlob.type);
+    formData.append('audio', processedBlob, filename);
 
     try {
       const response = await fetch(`${this.baseUrl}/transcribe`, {
@@ -164,9 +185,44 @@ export class TranscriptionService {
 
   async checkHealth(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseUrl}/health`);
-      return response.ok;
-    } catch {
+      console.log('🔍 Checking Groq service health at:', `${this.baseUrl}/health`);
+      console.log('🌐 Making request from origin:', window.location.origin);
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
+      const response = await fetch(`${this.baseUrl}/health`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      console.log('📡 Health check response:', {
+        status: response.status,
+        ok: response.ok,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries())
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ Health check data:', data);
+        console.log('🎯 Health check SUCCESS - returning true');
+        return true;
+      } else {
+        console.log('❌ Health check FAILED - response not ok');
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ Health check EXCEPTION:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
       return false;
     }
   }
