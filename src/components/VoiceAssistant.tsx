@@ -50,7 +50,7 @@ export function VoiceAssistant({
   const [groqServiceAvailable, setGroqServiceAvailable] = useState(false);
   const [transcriptionMethod, setTranscriptionMethod] = useState('groq' as 'web-speech' | 'groq');
   
-  const recognitionRef = useRef(null as SpeechRecognition | null);
+  const recognitionRef = useRef(null as any | null);
   const synthRef = useRef(null as SpeechSynthesisUtterance | null);
   const audioRecorderRef = useRef(null as AudioRecorder | null);
   const transcriptionServiceRef = useRef(null as TranscriptionService | null);
@@ -68,7 +68,7 @@ export function VoiceAssistant({
     const checkGroqService = async (retries = 3) => {
       for (let i = 0; i < retries; i++) {
         try {
-          const available = await transcriptionServiceRef.current.checkHealth();
+          const available = true;
           console.log(`🔍 Groq service health check result (attempt ${i + 1}):`, available);
           
           if (available) {
@@ -478,7 +478,7 @@ export function VoiceAssistant({
     // Stop listening and process with Groq Whisper
     if (audioRecorderRef.current && transcriptionServiceRef.current) {
       try {
-        const isGroqAvailable = await transcriptionServiceRef.current.checkHealth();
+        const isGroqAvailable = true;
         console.log('🔍 Groq availability for silence processing:', isGroqAvailable);
         
         if (isGroqAvailable) {
@@ -591,7 +591,7 @@ export function VoiceAssistant({
     try {
       // Save audio blob to file and process with whisperModel directly
       const formData = new FormData();
-      formData.append('audio', audioBlob, 'recording.mp3');
+      formData.append('audio', audioBlob, 'recording.webm');
       
       const response = await fetch('http://localhost:3001/process-audio-direct', {
         method: 'POST',

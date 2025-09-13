@@ -28,30 +28,35 @@ start();
 
 // Groq client no longer needed - using whisperModel function directly
 
-// Configure multer for file uploads
-const upload = multer({ 
-  dest: 'uploads/',
-  limits: {
-    fileSize: 25 * 1024 * 1024, // 25MB limit
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
   },
+  filename: (req, file, cb) => {
+    // Use original extension
+    const ext = path.extname(file.originalname+'.webm'); 
+    console.log("ext",ext);
+    const uniqueName = Date.now() + '-' + Math.round(Math.random() * 1e9) + ext;
+    cb(null, uniqueName);
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 25 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    console.log('📁 Received file:', {
-      originalname: file.originalname,
-      mimetype: file.mimetype,
-      fieldname: file.fieldname
-    });
-    
-    // Accept audio files and be more permissive
-    if (file.mimetype.startsWith('audio/') || 
-        file.originalname.match(/\.(wav|webm|mp4|mp3|ogg|opus|m4a|flac)$/i)) {
-      console.log('✅ File accepted');
+    if (
+      file.mimetype.startsWith('audio/') ||
+      file.originalname.match(/\.(wav|webm|mp4|mp3|ogg|opus|m4a|flac)$/i)
+    ) {
       cb(null, true);
     } else {
-      console.log('❌ File rejected - not audio format');
       cb(new Error('Only audio files are allowed'), false);
     }
   }
 });
+
 
 // Middleware
 app.use(cors({
@@ -78,53 +83,41 @@ app.get('/health', (req, res) => {
 
 // Direct audio processing endpoint (bypasses old transcribe API)
 app.post('/process-audio-direct', upload.single('audio'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ 
-        error: 'No audio file provided' 
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No audio file provided' });
+      }
+  
+      const audioPath = req.file.path // ✅ use the correct uploaded path
+      console.log(`🎵 Processing audio file directly: ${audioPath}`);
+      console.log(`📊 File size: ${req.file.size} bytes`);
+      console.log(`🎧 File type: ${req.file.mimetype}`);
+  
+      // Call whisperModel function directly
+      console.log("🔄 Calling whisperModel function directly...");
+      const translatedText = await whisperModel(audioPath);
+  
+      // Clean up uploaded file
+      fs.unlink(audioPath, (err) => {
+        if (err) console.error('Error deleting temp file:', err);
       });
+  
+      const response = {
+        text: translatedText ? translatedText.trim() : '',
+        confidence: 0.85,
+        language: "en",
+        model: "whisper-large-v3"
+      };
+  
+      console.log('📤 Response:', response);
+      res.json(response);
+  
+    } catch (error) {
+      console.error('❌ Direct processing error:', error);
+      res.status(500).json({ error: 'Direct processing failed', details: error.message });
     }
-
-    const audioPath = req.file.path;
-    
-    console.log(`🎵 Processing audio file directly: ${audioPath}`);
-    console.log(`📊 File size: ${req.file.size} bytes`);
-    console.log(`🎧 File type: ${req.file.mimetype}`);
-
-    // Call whisperModel function directly - no API calls
-    console.log('🔄 Calling whisperModel function directly...');
-    const translatedText = await whisperModel(audioPath);
-
-    // Clean up uploaded file
-    fs.unlink(audioPath, (err) => {
-      if (err) console.error('Error deleting temp file:', err);
-    });
-
-    console.log('\n🎯 === DIRECT WHISPER RESPONSE ===');
-    console.log(`📝 Translated text: "${translatedText}"`);
-    console.log('==================================\n');
-
-    const response = {
-      text: translatedText ? translatedText.trim() : '',
-      confidence: 0.85,
-      language: "en",
-      model: "whisper-large-v3"
-    };
-
-    console.log('\n📤 === RESPONSE TO FRONTEND ===');
-    console.log('📄 Response:', JSON.stringify(response, null, 2));
-    console.log('===============================\n');
-    res.json(response);
-
-  } catch (error) {
-    console.error('❌ Direct processing error:', error);
-    
-    res.status(500).json({ 
-      error: 'Direct processing failed',
-      details: error.message
-    });
-  }
-});
+  });
+  
 
 // Error handling middleware
 app.use((error, req, res, next) => {
