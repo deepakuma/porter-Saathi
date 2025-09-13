@@ -7,8 +7,7 @@ This is a Porter Driver Partner App with integrated Voice Assistant powered by G
 - 🎙️ **Voice Assistant**: Control the app using voice commands
 - 🤖 **Groq Whisper Integration**: High-accuracy speech-to-text transcription
 - 📱 **Driver Dashboard**: Complete driver interface for order management
-- 🔊 **Voice Feedback**: Audio responses for better accessibility
-- 🚗 **Real-time Navigation**: Voice-controlled navigation assistance
+- 📝 **Provide answers in the text format**
 
 ## Voice Commands
 
@@ -48,3 +47,12 @@ For detailed setup instructions, see [VOICE_ASSISTANT_SETUP.md](VOICE_ASSISTANT_
 - **Backend**: Node.js + Express
 - **Voice AI**: Groq Whisper API
 - **UI Components**: Tailwind CSS + shadcn/ui
+
+
+Features - 
+- Web speech API to get the voice recording. 
+- Groq Whisper AI model for speech-to-text transcription 
+- Mongo DB as a vector database for storing the user data.
+- @xenova/transformers library for converting data into embeddings for training the LLM model.
+- gpt-4o-mini LLM model for answering the queries of the user. 
+- Google translating APIs to translate and return the response in users language.
