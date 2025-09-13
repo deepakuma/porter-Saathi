@@ -4,7 +4,7 @@ import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
 import { config } from 'dotenv';
-import Groq from 'groq-sdk';
+import { whisperModel } from './models/whispher.js';
 
 // Load environment variables
 config();
@@ -26,10 +26,7 @@ async function start() {
 
 start();
 
-// Initialize Groq client
-const groq = new Groq({ 
-  apiKey: process.env.GROQ_API_KEY 
-});
+// Groq client no longer needed - using whisperModel function directly
 
 // Configure multer for file uploads
 const upload = multer({ 
@@ -38,10 +35,19 @@ const upload = multer({
     fileSize: 25 * 1024 * 1024, // 25MB limit
   },
   fileFilter: (req, file, cb) => {
-    // Accept audio files
-    if (file.mimetype.startsWith('audio/')) {
+    console.log('📁 Received file:', {
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+      fieldname: file.fieldname
+    });
+    
+    // Accept audio files and be more permissive
+    if (file.mimetype.startsWith('audio/') || 
+        file.originalname.match(/\.(wav|webm|mp4|mp3|ogg|opus|m4a|flac)$/i)) {
+      console.log('✅ File accepted');
       cb(null, true);
     } else {
+      console.log('❌ File rejected - not audio format');
       cb(new Error('Only audio files are allowed'), false);
     }
   }
@@ -49,8 +55,19 @@ const upload = multer({
 
 // Middleware
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  credentials: true
+  origin: [
+    'http://localhost:3002',  // Porter Driver App
+    'http://localhost:5173',  // Vite default
+    'http://localhost:3000',  // React/Next.js
+    'http://localhost:8080',  // Vue/other
+    'http://127.0.0.1:3002',  // Porter Driver App (IP)
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:8080'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json());
 
@@ -59,8 +76,8 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'transcription-service' });
 });
 
-// Transcription endpoint
-app.post('/transcribe', upload.single('audio'), async (req, res) => {
+// Direct audio processing endpoint (bypasses old transcribe API)
+app.post('/process-audio-direct', upload.single('audio'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ 
@@ -70,115 +87,42 @@ app.post('/transcribe', upload.single('audio'), async (req, res) => {
 
     const audioPath = req.file.path;
     
-    console.log(`Processing audio file: ${audioPath}`);
-    console.log(`File size: ${req.file.size} bytes`);
-    console.log(`File type: ${req.file.mimetype}`);
+    console.log(`🎵 Processing audio file directly: ${audioPath}`);
+    console.log(`📊 File size: ${req.file.size} bytes`);
+    console.log(`🎧 File type: ${req.file.mimetype}`);
 
-    // Transcribe using Groq Whisper with auto-language detection
-    const transcription = await groq.audio.transcriptions.create({
-      file: fs.createReadStream(audioPath),
-      model: "whisper-large-v3",
-      // Auto-detect language - Whisper will identify the spoken language
-      response_format: "verbose_json",
-      temperature: 0.0, // More deterministic results
-    });
+    // Call whisperModel function directly - no API calls
+    console.log('🔄 Calling whisperModel function directly...');
+    const translatedText = await whisperModel(audioPath);
 
     // Clean up uploaded file
     fs.unlink(audioPath, (err) => {
       if (err) console.error('Error deleting temp file:', err);
     });
 
-    console.log(`Detected language: ${transcription.language || 'unknown'}`);
-    console.log(`Original transcription: ${transcription.text}`);
-
-    let finalText = transcription.text;
-    let translatedFromLanguage = transcription.language;
-
-    // If the detected language is not English, translate to English
-    if (transcription.language && transcription.language !== 'en' && transcription.language !== 'english') {
-      try {
-        console.log(`Translating from ${transcription.language} to English...`);
-        
-        const translation = await groq.chat.completions.create({
-          messages: [
-            {
-              role: "system",
-              content: "You are a professional translator. Translate the given text to English. Only return the translated text, nothing else. If the text is already in English, return it as is."
-            },
-            {
-              role: "user",
-              content: `Translate this to English: "${transcription.text}"`
-            }
-          ],
-          model: "llama3-8b-8192",
-          temperature: 0.1,
-          max_tokens: 150
-        });
-
-        finalText = translation.choices[0]?.message?.content?.trim() || transcription.text;
-        console.log(`Translated text: ${finalText}`);
-      } catch (translationError) {
-        console.error('Translation failed, using original text:', translationError);
-        // Fall back to original text if translation fails
-        finalText = transcription.text;
-      }
-    }
-
-    // Extract confidence from segments if available
-    let avgConfidence = 0;
-    if (transcription.segments && transcription.segments.length > 0) {
-      const totalConfidence = transcription.segments.reduce((sum, segment) => {
-        return sum + (segment.avg_logprob || 0);
-      }, 0);
-      // Convert log probability to confidence (approximate)
-      avgConfidence = Math.exp(totalConfidence / transcription.segments.length);
-    }
+    console.log('\n🎯 === DIRECT WHISPER RESPONSE ===');
+    console.log(`📝 Translated text: "${translatedText}"`);
+    console.log('==================================\n');
 
     const response = {
-      text: finalText.trim(), // Use translated text if available
-      originalText: transcription.text.trim(), // Keep original for reference
-      confidence: Math.max(0.1, Math.min(1.0, avgConfidence)), // Clamp between 0.1 and 1.0
-      duration: transcription.duration,
-      language: transcription.language,
-      translatedFromLanguage: translatedFromLanguage,
-      wasTranslated: finalText !== transcription.text,
-      segments: transcription.segments?.length || 0,
+      text: translatedText ? translatedText.trim() : '',
+      confidence: 0.85,
+      language: "en",
       model: "whisper-large-v3"
     };
 
-    console.log('Transcription result:', response);
+    console.log('\n📤 === RESPONSE TO FRONTEND ===');
+    console.log('📄 Response:', JSON.stringify(response, null, 2));
+    console.log('===============================\n');
     res.json(response);
 
   } catch (error) {
-    console.error('Transcription error:', error);
+    console.error('❌ Direct processing error:', error);
     
-    // Clean up file on error
-    if (req.file?.path) {
-      fs.unlink(req.file.path, (err) => {
-        if (err) console.error('Error deleting temp file on error:', err);
-      });
-    }
-
-    // Handle specific Groq API errors
-    if (error.status === 400) {
-      res.status(400).json({ 
-        error: 'Invalid audio file or request',
-        details: error.message 
-      });
-    } else if (error.status === 401) {
-      res.status(500).json({ 
-        error: 'Authentication failed - check GROQ_API_KEY' 
-      });
-    } else if (error.status === 429) {
-      res.status(429).json({ 
-        error: 'Rate limit exceeded - please try again later' 
-      });
-    } else {
-      res.status(500).json({ 
-        error: 'Transcription failed',
-        details: error.message 
-      });
-    }
+    res.status(500).json({ 
+      error: 'Direct processing failed',
+      details: error.message
+    });
   }
 });
 
