@@ -62,24 +62,37 @@ export function VoiceAssistant({
     audioRecorderRef.current = new AudioRecorder();
     transcriptionServiceRef.current = new TranscriptionService();
     
-    // Check Groq service availability
-    transcriptionServiceRef.current.checkHealth().then(available => {
-      console.log('🔍 Groq service health check result:', available);
-      setGroqServiceAvailable(available);
-      
-      // Set Groq as primary if available, otherwise fall back to Web Speech
-      if (available) {
-        console.log('✅ Setting Groq as primary transcription method');
-        setUseGroqFallback(true);
-        setTranscriptionMethod('groq');
-        setIsSupported(true);
-      } else {
-        console.log('❌ Groq service not available, checking Web Speech API');
+    // Check Groq service availability with retry
+    const checkGroqService = async (retries = 3) => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          const available = await transcriptionServiceRef.current.checkHealth();
+          console.log(`🔍 Groq service health check result (attempt ${i + 1}):`, available);
+          
+          if (available) {
+            setGroqServiceAvailable(true);
+            setUseGroqFallback(true);
+            setTranscriptionMethod('groq');
+            console.log('✅ Groq transcription service is available');
+            return;
+          }
+        } catch (error) {
+          console.error(`❌ Error checking Groq service (attempt ${i + 1}):`, error);
+        }
+        
+        // Wait before retry
+        if (i < retries - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
       }
-    }).catch(error => {
-      console.error('❌ Error checking Groq service:', error);
+      
+      console.log('⚠️ Groq service not available after retries, using Web Speech fallback');
       setGroqServiceAvailable(false);
-    });
+      setUseGroqFallback(false);
+      setTranscriptionMethod('web-speech');
+    };
+    
+    checkGroqService();
     
     // Check if Web Speech API is supported (as fallback)
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
@@ -377,13 +390,28 @@ export function VoiceAssistant({
         try {
           console.log('🎙️ Stopping Groq recording...');
           setAudioRecordingStatus('Stopping recording...');
+          
+          // Check if recording is actually active before stopping
+          if (!audioRecorderRef.current.isRecording()) {
+            console.warn('⚠️ No active recording to stop');
+            setError('No active recording found. Please start recording first.');
+            setAudioRecordingStatus('');
+            setIsListening(false);
+            return;
+          }
+          
           const audioBlob = await audioRecorderRef.current.stopRecording();
           console.log('✅ Audio recorded, processing transcription...');
           setAudioRecordingStatus('Audio recorded, sending to Whisper...');
           await processGroqTranscription(audioBlob);
         } catch (error) {
           console.error('❌ Error stopping Groq recording:', error);
-          setError('Failed to process recording');
+          console.error('❌ Full error details:', {
+            message: error.message,
+            stack: error.stack,
+            name: error.name
+          });
+          setError(`Failed to process recording: ${error.message || 'Unknown error'}`);
           setAudioRecordingStatus('');
         }
       } else if (recognitionRef.current) {
@@ -421,6 +449,14 @@ export function VoiceAssistant({
 
   const startWebSpeechRecognition = async () => {
     if (!recognitionRef.current) return;
+    
+    // Check if recognition is already running
+    if (recognitionRef.current.state === 'listening') {
+      console.log('⚠️ Recognition already running, stopping first');
+      recognitionRef.current.stop();
+      // Wait a bit before restarting
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
     
     try {
       recognitionRef.current.start();
@@ -477,7 +513,13 @@ export function VoiceAssistant({
       setTranscriptionText(result.text);
       setLastCommand(result.text.toLowerCase().trim());
       setConfidence(result.confidence);
-      setAudioRecordingStatus(`Transcription complete (${Math.round(result.confidence * 100)}% confidence)`);
+      
+      // Show translation status if applicable
+      if (result.wasTranslated) {
+        setAudioRecordingStatus(`Translated from ${result.language} to English (${Math.round(result.confidence * 100)}% confidence)`);
+      } else {
+        setAudioRecordingStatus(`Transcription complete (${Math.round(result.confidence * 100)}% confidence)`);
+      }
       
       // Show transcription result to user
       speak(`I heard: ${result.text}`);
@@ -495,6 +537,12 @@ export function VoiceAssistant({
       }
     } catch (error) {
       console.error('❌ Groq transcription error:', error);
+      console.error('❌ Full transcription error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+        response: error.response?.data || 'No response data'
+      });
       setAudioRecordingStatus('Transcription failed');
       
       // Try Web Speech as fallback if Groq fails
@@ -505,7 +553,7 @@ export function VoiceAssistant({
         speak('Switching to web speech recognition');
         setTimeout(() => startWebSpeechRecognition(), 1000);
       } else {
-        setError(`Transcription failed: ${error}`);
+        setError(`Transcription failed: ${error.message || error}`);
       }
     } finally {
       setIsProcessing(false);
@@ -710,6 +758,9 @@ export function VoiceAssistant({
                       </p>
                     )}
                   </div>
+                  <p className="text-xs text-blue-600 mt-1">
+                    🌍 Supports any language - automatically translated to English
+                  </p>
                 </div>
               )}
               
