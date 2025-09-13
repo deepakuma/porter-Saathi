@@ -12,6 +12,20 @@ config();
 const app = express();
 const port = process.env.PORT || 3001;
 
+import { connectDB, createUserAndStats } from './db.js';
+
+async function start() {
+  await connectDB();
+  await createUserAndStats();
+
+  app.listen(port, () => {
+    console.log(`Transcription service running on port ${port}`);
+    console.log(`GROQ_API_KEY configured: ${!!process.env.GROQ_API_KEY}`);
+  });
+}
+
+start();
+
 // Initialize Groq client
 const groq = new Groq({ 
   apiKey: process.env.GROQ_API_KEY 
@@ -184,11 +198,7 @@ app.use((error, req, res, next) => {
   });
 });
 
-// Start server
-app.listen(port, () => {
-  console.log(`Transcription service running on port ${port}`);
-  console.log(`GROQ_API_KEY configured: ${!!process.env.GROQ_API_KEY}`);
-});
+// Server is started in the start() function above
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
